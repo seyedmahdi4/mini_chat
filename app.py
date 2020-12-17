@@ -1,31 +1,80 @@
-#import os
+from flask_socketio import send, emit,join_room,SocketIO
+from flask import Flask
 import time
-from hashlib import sha256
-from flask import Flask, render_template, request, redirect, url_for, flash, json, jsonify
-#from flask_login import LoginManager, login_user, current_user, logout_user
-from flask_socketio import SocketIO, join_room, leave_room, send , emit 
 from models import *
-from job import mainfunc
-token='a157d50fa699b5a08ce9a95e185a227dc385741f8209ae92e50ab1040ec089cff2e5aafc64a04ac704c644ce38c34d1d7f7493561687c66e43eeda8186744134'
-salt='sds9eMx83l1!@@))[}(+{9[a*Q~`":\'><?<>JKSd8@#$$^%(408aaDAML>.ًًًٌٍََُُُِِّْٓٔ‌ٰ  '
+from hashlib import sha256
+import config
 
 app = Flask(__name__)
-
-app.secret_key = 'ali 1234'
-#app.config['WTF_CSRF_SECRET_KEY'] = "b'f\xfa\x8b{X\x8b\x9eM\x83l\x19\xad\x84\x08\xaa"
-
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///./data.db?charset=utf8'
+socketio = SocketIO(app)
+app.secret_key = config.secret_key
+app.config['SQLALCHEMY_DATABASE_URI'] = config.database_uri
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
+token=config.token
+salt=config.salt
+namespace=config.namespace
 
-socketio = SocketIO(app, manage_session=False)
 
 @socketio.on('connect')
 def connect():
     return True
 
-num=45
+@socketio.on('join')
+def joined(data):
+    if not encrypt(data['token']) == token:
+        emit('msg',{'msg':'false'},room=data['room'])
+        return 0
+    join_room(data['room'])
+    emit('msg',{'msg':'joind to '+data['room']+' channel'},room=data['room'])
 
+
+@socketio.on('msg')
+def handle_msg(data):
+    if not encrypt(data['token']) == token:
+        return {} ,401
+    emit('msg',{'msg':data['msg']},room=data['room'])
+    tohistory(data)
+
+
+@socketio.on('histoy')
+def load_history(data):
+    print('hi')
+    if not encrypt(data['token']) == token:
+        return {}
+    if data['msg']!='load_logs':
+        return False
+    emit('hist',give_history(data['qroom']),room=data['room'])
+
+
+def tohistory(data):
+    msg = data["msg"]
+    room = data['room']
+    print(msg.encode('latin-1').decode('utf-8'))
+    room = data["room"]
+    time_stamp = time.strftime('%b-%d %I:%M%p', time.localtime())
+    if msg:
+        message = History(message=msg.encode(
+            'latin-1').decode('utf-8'), time_stamp=time_stamp, room=room)
+        db.session.add(message)
+        db.session.commit()
+
+
+
+def give_history(Room):
+    #print(encrypt(request.values.get('token')))
+    messages = History.query.filter_by(room=Room)
+    list_message = []
+    for i in messages:
+        b = i.__dict__
+        del b['_sa_instance_state']
+        b['msg'] = b['message']
+        del b['message']
+        list_message.append(b)
+    data = list_message
+    return {"res": data}
+
+num=45
 def encrypt(tok):
     num0 = num
     salt2 = salt
@@ -38,43 +87,6 @@ def encrypt(tok):
     for i in range (len(str(num0)),2):
         salt2+=chr(int(str[i])*10+int(str[i+1]))
     return sha256((tok+salt2[num1:]).encode()).hexdigest()+sha256((salt2[:num1]+tok).encode()).hexdigest()
-
-
-@app.route('/chat/<Room>',methods=['POST'])
-def give_history(Room):
-    #print(encrypt(request.values.get('token')))
-    if not encrypt(request.values.get('token')) == token:
-        return {} ,401
-    messages = History.query.filter_by(room=Room)
-    list_message = []
-    for i in messages:
-        b = i.__dict__
-        del b['_sa_instance_state']
-        b['msg'] = b['message']
-        del b['message']
-        list_message.append(b)
-    data = list_message
-    return json.dumps({"res": data})
-
-@socketio.on('msg')
-def on_message(data):
-    if not encrypt(data['token']) == token:
-        emit('msg1',{'mes':'token kharabe'})
-        return 0 ,401
-    msg = data["msg"]
-
-    mainfunc(msg)
-
-    print(msg.encode('latin-1').decode('utf-8'))
-    emit('msg1',{'mes':'recive'})
-    room = data["room"]
-    time_stamp = time.strftime('%b-%d %I:%M%p', time.localtime())
-    if msg:
-        message = History(message=msg.encode(
-            'latin-1').decode('utf-8'), time_stamp=time_stamp, room=room)
-        db.session.add(message)
-        db.session.commit()
-    return True
 
 if __name__ == "__main__":
     socketio.run(app,debug=True)

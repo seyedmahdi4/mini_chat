@@ -1,2 +1,5 @@
 .venv
 __pycache__
+app12.py
+config.py
+data.db

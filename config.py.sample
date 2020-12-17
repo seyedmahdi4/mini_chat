@@ -1,0 +1,5 @@
+token='' #token
+salt='aaaaaaaaaaaaa'
+secret_key = 'sec'
+database_uri= 'sqlite:///./data.db?charset=utf8'
+namespace='/pc'
